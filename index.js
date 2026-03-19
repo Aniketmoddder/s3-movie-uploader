@@ -1,4 +1,7 @@
 import express from 'express';
+import fs from 'fs';
+import { Readable } from 'stream';
+import { finished } from 'stream/promises';
 import { S3Client } from "@aws-sdk/client-s3";
 import { Upload } from "@aws-sdk/lib-storage";
 
@@ -16,28 +19,39 @@ const s3Client = new S3Client({
 });
 
 app.get('/', (req, res) => {
-  res.send('Server is running! Go to /download to start the transfer.');
+  res.send('Server is running! Go to /download to start the 2-step transfer.');
 });
 
-// Visiting this endpoint triggers the download
+// Trigger the 2-step download
 app.get('/download', async (req, res) => {
-  res.send('Download started! Check your Railway deployment logs to see the progress.');
+  // We send a response immediately so your mobile browser doesn't sit loading forever
+  res.send('2-Step Download started! Check your Railway deployment logs to see the magic happen.');
+  
+  const videoUrl = "https://filetolinkneon3-f3fb5765bfd1.herokuapp.com/stream/1684725?hash=74fa28&d=true";
+  const localFilePath = "./temp_movie.mp4"; // Saves inside Railway's temporary storage
   
   try {
-    const videoUrl = "https://filetolinkneon3-f3fb5765bfd1.herokuapp.com/stream/1684522?hash=74fa28&d=true";
-    
-    console.log("Fetching video from source...");
+    console.log("⬇️ Step 1: Downloading file from Heroku to Railway local storage...");
     const response = await fetch(videoUrl);
     
     if (!response.ok) throw new Error(`Fetch failed: ${response.statusText}`);
 
-    console.log("Streaming directly to S3 bucket...");
+    // Pipe the download directly into Railway's local disk
+    const fileStream = fs.createWriteStream(localFilePath);
+    await finished(Readable.fromWeb(response.body).pipe(fileStream));
+
+    console.log("✅ Download complete! File saved safely to Railway.");
+    console.log("⬆️ Step 2: Uploading file from Railway to S3 Bucket...");
+
+    // Now upload that local file to S3
+    const uploadStream = fs.createReadStream(localFilePath);
+
     const upload = new Upload({
       client: s3Client,
       params: {
         Bucket: process.env.S3_BUCKET_NAME, 
-        Key: "movies/my_movie.mp4", // Change .mp4 if it's a different format
-        Body: response.body,
+        Key: "movies/new_movie.mp4", 
+        Body: uploadStream,
         ContentType: "video/mp4", 
       },
     });
@@ -52,9 +66,19 @@ app.get('/download', async (req, res) => {
     });
 
     await upload.done();
-    console.log("✅ Transfer complete! The file is in your bucket.");
+    console.log("✅ Transfer to S3 complete! The file is in your bucket.");
+
+    // Clean up: Delete the file from Railway to keep your app light
+    fs.unlinkSync(localFilePath);
+    console.log("🧹 Cleaned up temporary local file.");
+
   } catch (error) {
     console.error("❌ Error during transfer:", error);
+    // If it fails, try to delete the broken file so it doesn't take up space
+    if (fs.existsSync(localFilePath)) {
+        fs.unlinkSync(localFilePath);
+        console.log("🧹 Cleaned up broken file after error.");
+    }
   }
 });
 
