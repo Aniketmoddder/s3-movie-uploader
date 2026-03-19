@@ -24,7 +24,7 @@ app.get('/download', async (req, res) => {
   res.send('Download started! Check your Railway deployment logs to see the progress.');
   
   try {
-    const videoUrl = "https://filetolinkneon3-f3fb5765bfd1.herokuapp.com/stream/1684212?hash=74fa28&d=true";
+    const videoUrl = "https://filetolinkneon3-f3fb5765bfd1.herokuapp.com/stream/1684522?hash=74fa28&d=true";
     
     console.log("Fetching video from source...");
     const response = await fetch(videoUrl);
